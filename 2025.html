@@ -150,18 +150,21 @@
                     <div class="space-y-2 text-sm">
                         <div>
                             <label for="musicVolume">Music:</label>
-                            <input type="range" id="musicVolume" min="0" max="100" value="50" class="volume-slider">
+                            <input type="range" id="musicVolume" min="0" max="100" value="75" class="volume-slider">
                         </div>
                         <div>
                             <label for="sfxVolume">SFX:</label>
-                            <input type="range" id="sfxVolume" min="0" max="100" value="80" class="volume-slider">
+                            <input type="range" id="sfxVolume" min="0" max="100" value="50" class="volume-slider">
                         </div>
                     </div>
                 </div>
                 <div class="bg-gray-900 bg-opacity-50 rounded-lg p-4 shadow-xl mb-6">
-                    <h2 class="text-xl text-yellow-500 mb-4">Event Log</h2>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl text-yellow-500">Event Log</h2>
+                        <button id="downloadLogBtn" class="text-xs px-2 py-1 rounded btn hidden">Download</button>
+                    </div>
                     <div id="eventLog" class="h-64 overflow-y-auto pr-2">
-                        <p class="text-gray-500 italic text-sm">The adventure has not yet begun...</p>
+                        <p class="text-gray-500 italic text-sm">Prepare your adventurers...</p>
                     </div>
                 </div>
                 
@@ -186,6 +189,7 @@
         let turn = 0;
         let gameState = 'setup'; // setup, starting, running, paused, finished
         let animationFrameCounter = 0;
+        let dustStormCount = 0;
 
         const startBtn = document.getElementById('startBtn');
         const pauseBtn = document.getElementById('pauseBtn');
@@ -193,6 +197,7 @@
         const musicVolumeSlider = document.getElementById('musicVolume');
         const sfxVolumeSlider = document.getElementById('sfxVolume');
         const eventLog = document.getElementById('eventLog');
+        const downloadLogBtn = document.getElementById('downloadLogBtn');
         const rankingContainer = document.getElementById('rankingContainer');
         const rankingBoard = document.getElementById('rankingBoard');
         const adventurersContainer = document.getElementById('adventurersContainer');
@@ -205,12 +210,13 @@
 
         // --- Sound Effects ---
         let soundsReady = false;
-        let musicVolume, sfxVolume, backgroundMusic;
+        let musicVolume, sfxVolume, backgroundMusic, intenseMusic;
+        let isIntenseMusicActive = false;
         let synths = {}, eventSynths = {};
 
         function setupAudio() {
-            musicVolume = new Tone.Volume(-18).toDestination();
-            sfxVolume = new Tone.Volume(-6).toDestination();
+            musicVolume = new Tone.Volume(-12).toDestination(); // Default to 75%
+            sfxVolume = new Tone.Volume(-18).toDestination(); // Default to 50%
 
             synths = {
                 damage: new Tone.PolySynth(Tone.Synth, { oscillator: { type: "square" }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.1 } }).connect(sfxVolume),
@@ -229,18 +235,28 @@
                 growl: new Tone.MonoSynth({ oscillator: { type: "sawtooth" }, filter: { Q: 2, type: "lowpass", rolloff: -24 }, envelope: { attack: 0.1, decay: 0.3, sustain: 0.2, release: 0.2 } }).connect(sfxVolume),
             };
 
-            const musicSynth = new Tone.FMSynth({
+            const musicSynthConfig = {
                 harmonicity: 1.5, modulationIndex: 1.2, oscillator: { type: "sine" },
                 envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 1 },
                 modulation: { type: "triangle" },
                 modulationEnvelope: { attack: 0.2, decay: 0.1, sustain: 0.8, release: 0.5 }
-            }).connect(musicVolume);
+            };
 
-            const melody = ['E3', null, 'G3', 'A3', 'G3', null, 'E3', null, 'G3', 'B3', 'A3', null, 'G3', null, null, null];
+            const musicSynth = new Tone.FMSynth(musicSynthConfig).connect(musicVolume);
+            const intenseMusicSynth = new Tone.FMSynth(musicSynthConfig).connect(musicVolume);
+
+            const melody = ['E3', null, 'G3', 'A3', 'G3', null, 'E3', null, 'G3', 'B3', 'A3', null, 'G3', null, null, null, 'D3', null, 'F3', 'G3', 'F3', null, 'D3', null, 'F3', 'A3', 'G3', null, 'F3', null, null, null];
             backgroundMusic = new Tone.Sequence((time, note) => {
                 if (note) musicSynth.triggerAttackRelease(note, "8n", time);
-            }, melody, "8n").start(0);
+            }, melody, "8n");
             backgroundMusic.loop = true;
+
+            const intenseMelody = ['A3', 'G#3', 'A3', 'F3', 'A3', 'G#3', 'A3', 'E3', 'D3', 'E3', 'F3', 'E3', 'D3', null, 'C4', null, 'A3', 'B3', 'C4', 'B3', 'A3', null, 'E3', null, 'A3', 'B3', 'C4', 'B3', 'A3', null, 'E4', null];
+            intenseMusic = new Tone.Sequence((time, note) => {
+                if(note) intenseMusicSynth.triggerAttackRelease(note, "8n", time);
+            }, intenseMelody, "8n");
+            intenseMusic.loop = true;
+
             Tone.Transport.bpm.value = 90;
         }
 
@@ -254,7 +270,7 @@
             switch(eventName) {
                 case 'Cave-in': case 'Rockslide': case 'Earthquake': eventSynths.rumble.triggerAttackRelease("8n"); break;
                 case 'Hidden Trap': case 'Dart Trap Gauntlet': eventSynths.snap.triggerAttackRelease("C2", "8n"); break;
-                case 'Rushing River': eventSynths.whoosh.triggerAttackRelease("2n"); break;
+                case 'Rushing River': case 'Shimmering Dust Storm': eventSynths.whoosh.triggerAttackRelease("2n"); break;
                 case 'Sudden Storm': case 'Bolt from the Blue': eventSynths.lightning.triggerAttackRelease("16n"); break;
                 case 'Wildlife Ambush': eventSynths.growl.triggerAttackRelease("A1", "4n"); break;
             }
@@ -313,6 +329,7 @@
                 this.gender = (name === "Brittany") ? 'female' : 'male';
                 this.sprites = createAdventurerSpriteSet(this.color, this.gender === 'female');
                 this.stats = this.generateFairStats();
+                this.initialStats = {};
                 this.status = "Active";
                 this.health = 10;
                 this.maxHealth = 10;
@@ -354,10 +371,8 @@
             updateStat(stat, amount) {
                 const oldValue = this.stats[stat];
                 this.stats[stat] = Math.max(1, oldValue + amount);
-                if (this.stats[stat] > oldValue) playSound('statUp', 'C5');
-                else if (this.stats[stat] < oldValue) playSound('statDown', 'G3');
                 document.getElementById(`stat-input-${this.name}-${stat}`).value = this.stats[stat];
-                validateAllStats();
+                updateAndValidateStatTotals();
             }
         }
 
@@ -377,10 +392,10 @@
                             <div id="health-${adv.name}" class="bg-green-600 h-2.5 rounded-full" style="width: 100%"></div>
                         </div>
                         <div class="text-xs grid grid-cols-2 gap-x-2 gap-y-1 text-gray-300">
-                           <span>💪 <input type="number" id="stat-input-${adv.name}-strength" class="stat-input" value="${adv.stats.strength}" min="1"></span>
-                           <span>👟 <input type="number" id="stat-input-${adv.name}-agility" class="stat-input" value="${adv.stats.agility}" min="1"></span>
-                           <span>🧠 <input type="number" id="stat-input-${adv.name}-cunning" class="stat-input" value="${adv.stats.cunning}" min="1"></span>
-                           <span>🍀 <input type="number" id="stat-input-${adv.name}-luck" class="stat-input" value="${adv.stats.luck}" min="1"></span>
+                           <span id="stat-span-${adv.name}-strength">💪 <input type="number" id="stat-input-${adv.name}-strength" class="stat-input" value="${adv.stats.strength}" min="1"></span>
+                           <span id="stat-span-${adv.name}-agility">👟 <input type="number" id="stat-input-${adv.name}-agility" class="stat-input" value="${adv.stats.agility}" min="1"></span>
+                           <span id="stat-span-${adv.name}-cunning">🧠 <input type="number" id="stat-input-${adv.name}-cunning" class="stat-input" value="${adv.stats.cunning}" min="1"></span>
+                           <span id="stat-span-${adv.name}-luck">🍀 <input type="number" id="stat-input-${adv.name}-luck" class="stat-input" value="${adv.stats.luck}" min="1"></span>
                         </div>
                         <p class="text-xs text-center mt-1">Total: <span id="total-${adv.name}">30</span></p>
                     </div>
@@ -429,7 +444,7 @@
             { name: "Rockslide", resolve: (adv, dice) => { const check = adv.stats.strength + adv.stats.agility + dice, target = 16 + eventTargetBonus; if (check < target) { playEventSound('Rockslide'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} buried in a rockslide for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Lost in a rockslide.`); } else { logEvent(`🎲 ${adv.name} scrambles to safety!`); }}},
             { name: "Rushing River", resolve: (adv, dice) => { const check = adv.stats.strength + dice, target = 10 + eventTargetBonus; if (check < target) { playEventSound('Rushing River'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} swept away, taking ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Drowned in a river.`); } else { logEvent(`🎲 ${adv.name} powers through the current!`); }}},
             { name: "Poison Thorns", resolve: (adv, dice) => { const check = adv.stats.agility + adv.stats.luck + dice, target = 16 + eventTargetBonus; if (check < target) { playEventSound('Hidden Trap'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} scraped by poison thorns for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Succumbed to poison.`); } else { logEvent(`🎲 ${adv.name} deftly avoids the thorns!`); }}},
-            { name: "Sudden Storm", resolve: (adv, dice) => { const check = adv.stats.cunning + dice, target = 10 + eventTargetBonus; if (check < target) { playEventSound('Sudden Storm'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} is struck by lightning for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Killed in a storm.`); } else { logEvent(`🎲 ${adv.name} finds shelter just in time!`); }}},
+            { name: "Sudden Storm", resolve: (adv, dice) => { const check = adv.stats.cunning + adv.stats.strength + dice, target = 16 + eventTargetBonus; if (check < target) { playEventSound('Sudden Storm'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} is struck by lightning for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Killed in a storm.`); } else { logEvent(`🎲 ${adv.name} finds shelter just in time!`); }}},
             { name: "Wildlife Ambush", resolve: (adv, dice) => { const check = adv.stats.luck + adv.stats.cunning + dice, target = 16 + eventTargetBonus; if (check < target) { playEventSound('Wildlife Ambush'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} is mauled by a beast for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Killed by wildlife.`); } else { logEvent(`🎲 ${adv.name} manages to scare off the beast!`); }}},
             { name: "Dart Trap Gauntlet", resolve: (adv, dice) => { const check = adv.stats.agility + dice, target = 10 + eventTargetBonus; if (check < target) { playEventSound('Dart Trap Gauntlet'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} is hit by darts for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Killed by dart traps.`); } else { logEvent(`🎲 ${adv.name} dodges every dart!`); }}},
             { name: "Illusory Ground", resolve: (adv, dice) => { const check = adv.stats.cunning + dice, target = 10 + eventTargetBonus; if (check < target) { playEventSound('Rushing River'); const dmg = (target - check) * DAMAGE_MULTIPLIER; adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} falls through an illusion for ${dmg} dmg!`); if(adv.health <= 0) eliminateAdventurer(adv, `Fooled by an illusion.`); } else { logEvent(`🎲 ${adv.name} sees through the trick!`); }}},
@@ -437,15 +452,16 @@
             // Health Recovery
             { name: "Forage for Herbs", resolve: (adv, dice) => { const check = dice, target = 4; if (check >= target) { const healing = 2; adv.heal(healing); logEvent(`🌿 ${adv.name} found healing herbs and recovered ${healing} HP!`); } else { logEvent(`🌿 ${adv.name} found nothing useful.`); }}},
             // Betrayals
-            { name: "Direct Attack", type: 'multi', resolve: (adv1, adv2, d1, d2) => { const attack = adv1.stats.strength + adv1.stats.cunning + adv1.stats.luck + d1, defense = adv2.stats.agility + adv2.stats.luck + adv2.stats.cunning + d2; if (attack > defense) { const dmg = (attack - defense) * DAMAGE_MULTIPLIER; adv2.takeDamage(dmg); logEvent(`⚔️ ${adv1.name} attacks ${adv2.name}, dealing ${dmg} dmg!`); if(adv2.health <= 0) eliminateAdventurer(adv2, `Killed by ${adv1.name}.`); } else { logEvent(`⚔️ ${adv2.name} fended off ${adv1.name}'s attack!`); const statKeys = ['strength', 'agility', 'cunning', 'luck']; const randomStat = statKeys[Math.floor(Math.random() * statKeys.length)]; const penalty = -Math.floor(adv1.stats[randomStat] / 2); if (adv1.stats[randomStat] > 1) { adv1.updateStat(randomStat, penalty); logEvent(`${adv1.name} is thrown off balance, losing ${-penalty} ${randomStat}!`); } }}},
-            { name: "Steal Supplies", type: 'multi', resolve: (adv1, adv2, d1, d2) => { const steal = adv1.stats.cunning + adv1.stats.agility + d1, guard = adv2.stats.cunning + adv2.stats.luck + d2; if (steal > guard) { adv1.updateStat('luck', 1); adv2.updateStat('strength', -1); logEvent(`💰 ${adv1.name} steals from ${adv2.name}! (+1 LCK). ${adv2.name} is weakened (-1 STR).`); } else { logEvent(`💰 ${adv2.name} caught ${adv1.name} red-handed!`); const statKeys = ['strength', 'agility', 'cunning', 'luck']; const randomStat = statKeys[Math.floor(Math.random() * statKeys.length)]; const penalty = -Math.floor(adv1.stats[randomStat] / 2); if (adv1.stats[randomStat] > 1) { adv1.updateStat(randomStat, penalty); logEvent(`${adv1.name} fumbled the attempt, losing ${-penalty} ${randomStat}!`); } }}},
+            { name: "Direct Attack", type: 'multi', resolve: (adv1, adv2, d1, d2) => { const attack = adv1.stats.strength + adv1.stats.cunning + adv1.stats.agility + d1, defense = adv2.stats.strength + adv2.stats.luck + adv2.stats.agility + d2; if (attack > defense) { const dmg = (attack - defense) * DAMAGE_MULTIPLIER; adv2.takeDamage(dmg); logEvent(`⚔️ ${adv1.name} attacks ${adv2.name}, dealing ${dmg} dmg!`); if(adv2.health <= 0) eliminateAdventurer(adv2, `Killed by ${adv1.name}.`); } else { logEvent(`⚔️ ${adv2.name} fended off ${adv1.name}'s attack!`); const statKeys = ['strength', 'agility', 'cunning', 'luck']; const randomStat = statKeys[Math.floor(Math.random() * statKeys.length)]; const penalty = -Math.floor(adv1.stats[randomStat] / 2); if (adv1.stats[randomStat] > 1) { adv1.updateStat(randomStat, penalty); logEvent(`${adv1.name} is thrown off balance, losing ${-penalty} ${randomStat}!`); } }}},
+            { name: "Steal Supplies", type: 'multi', resolve: (adv1, adv2, d1, d2) => { const steal = adv1.stats.cunning + adv1.stats.agility + d1, guard = adv2.stats.cunning + adv2.stats.luck + d2; if (steal > guard) { const statKeys = ['strength', 'agility', 'cunning', 'luck']; const randomStat = statKeys[Math.floor(Math.random() * statKeys.length)]; if(adv2.stats[randomStat] > 1) { adv1.updateStat(randomStat, 1); adv2.updateStat(randomStat, -1); logEvent(`💰 ${adv1.name} steals from ${adv2.name}! (+1 ${randomStat}). ${adv2.name} is weakened (-1 ${randomStat}).`); } else { logEvent(`💰 ${adv1.name} tries to steal from ${adv2.name}, but they had nothing to take!`); } } else { logEvent(`💰 ${adv2.name} caught ${adv1.name} red-handed!`); const statKeys = ['strength', 'agility', 'cunning', 'luck']; const randomStat = statKeys[Math.floor(Math.random() * statKeys.length)]; if (adv1.stats[randomStat] > 2) { adv1.updateStat(randomStat, -2); adv2.updateStat(randomStat, 2); logEvent(`${adv1.name} fumbled, losing 2 ${randomStat} and giving it to ${adv2.name}!`); } }}},
             // Stat Changers
             { name: "Ancient Tome", resolve: (adv, dice) => { const check = adv.stats.cunning + dice, target = 13; if (check >= target) { adv.updateStat('cunning', 2); logEvent(`Its secrets are revealed! ${adv.name} gains +2 Cunning!`); } else { adv.updateStat('cunning', -2); logEvent(`The text maddens them! ${adv.name} loses -2 Cunning.`); }}},
             { name: "Test of Might", resolve: (adv, dice) => { const check = adv.stats.strength + dice, target = 13; if (check >= target) { adv.updateStat('strength', 2); logEvent(`They overcome the challenge! ${adv.name} gains +2 Strength!`); } else { adv.updateStat('strength', -2); logEvent(`They fail the test, feeling defeated. (-2 STR)`); }}},
             { name: "Precarious Ledge", resolve: (adv, dice) => { const check = adv.stats.agility + dice, target = 13; if (check >= target) { adv.updateStat('agility', 2); logEvent(`They cross with grace! ${adv.name} gains +2 Agility!`); } else { adv.updateStat('agility', -2); logEvent(`They stumble and fall! ${adv.name} loses -2 Agility.`); }}},
             { name: "Mysterious Fountain", resolve: (adv, dice) => { const check = adv.stats.luck + dice, target = 13; if (check >= target) { adv.updateStat('luck', 2); logEvent(`The water blesses them! ${adv.name} gains +2 Luck!`); } else { adv.updateStat('luck', -2); logEvent(`The water was cursed! ${adv.name} loses -2 Luck.`); }}},
-            // Group Event
-            { name: "Earthquake", type: 'group', resolve: (activeAdventurers) => { activeAdventurers.forEach(adv => { const dice = rollDice(); if (dice <= 4) { const dmg = Math.ceil(adv.health / 2); adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} stumbles and takes ${dmg} dmg! (Rolled ${dice})`); if (adv.health <= 0) { eliminateAdventurer(adv, `Perished in the earthquake.`); } } else { logEvent(`🎲 ${adv.name} finds stable ground! (Rolled ${dice})`); } }); }}
+            // Group Events
+            { name: "Earthquake", type: 'group', resolve: (activeAdventurers) => { const casualties = []; activeAdventurers.forEach(adv => { const dice = rollDice(); if (dice <= 4) { const dmg = Math.ceil(adv.health / 2); adv.takeDamage(dmg); logEvent(`🎲 ${adv.name} stumbles and takes ${dmg} dmg! (Rolled ${dice})`); if (adv.health <= 0) { casualties.push(adv); } } else { logEvent(`🎲 ${adv.name} finds stable ground! (Rolled ${dice})`); } }); if (casualties.length > 1) { for (let i = casualties.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [casualties[i], casualties[j]] = [casualties[j], casualties[i]]; } } casualties.forEach(adv => { eliminateAdventurer(adv, `Perished in the earthquake.`); }); }},
+            { name: "Shimmering Dust Storm", type: 'group', resolve: (activeAdventurers) => { dustStormCount++; playEventSound('Shimmering Dust Storm'); logEvent(`✨ A magical dust storm engulfs the party! (${dustStormCount}/3)`); activeAdventurers.forEach(adv => { adv.stats = { ...adv.initialStats }; logEvent(`${adv.name}'s stats have been reset!`); }); updateAndValidateStatTotals(); }}
         ];
 
         async function runTurn() {
@@ -466,9 +482,20 @@
             const active = adventurers.filter(a => a.status === 'Active');
             if (active.length <= 1) { endSimulation(); return; }
 
+            // Music switch logic
+            if (active.length <= 5 && !isIntenseMusicActive) {
+                isIntenseMusicActive = true;
+                Tone.Transport.bpm.rampTo(120, 1);
+                backgroundMusic.stop();
+                intenseMusic.start(0);
+            }
+
             let availableEvents = [...events];
             if (active.length < 5) {
                 availableEvents = availableEvents.filter(e => e.name !== "Earthquake");
+            }
+            if (turn <= 20 || dustStormCount >= 3) {
+                availableEvents = availableEvents.filter(e => e.name !== "Shimmering Dust Storm");
             }
 
             const event = availableEvents[Math.floor(Math.random() * availableEvents.length)];
@@ -552,6 +579,7 @@
 
         async function endSimulation() {
             gameState = 'finished';
+            Tone.Transport.stop();
             const winner = adventurers.find(a => a.status === 'Active');
             
             if (winner) {
@@ -559,7 +587,7 @@
                 const rankEl = document.getElementById(`rank-${winner.name}`);
                 rankEl.innerHTML = `🏆 WINNER! 🏆`;
                 rankEl.classList.remove('hidden');
-                logEvent(`🏆 ${winner.name} has reached the cup!`, true);
+                logEvent(`🏆 ${winner.name} outlasts them all!`, true);
                 bannerText.innerHTML = `🏆<br>${winner.name} is Victorious!<br><span class="text-3xl">They win first draft pick for 2025!</span>`;
                 const now = Tone.now();
                 if (soundsReady) {
@@ -589,6 +617,7 @@
             startBtn.disabled = false;
             pauseBtn.disabled = true;
             resetBtn.disabled = false;
+            downloadLogBtn.classList.remove('hidden');
             pauseBtn.textContent = 'Pause';
         }
         
@@ -597,13 +626,16 @@
             rankingBoard.innerHTML = "";
             const sorted = [...adventurers].sort((a, b) => a.rank - b.rank);
             sorted.forEach((adv) => {
-                const li = document.createElement('li');
-                if (adv.rank === 1) li.innerHTML = `<span class="text-yellow-400">1. ${adv.name} - WINNER</span>`;
-                else if (adv.rank > 0) li.innerHTML = `<span>${adv.rank}. ${adv.name}</span> <span class="text-xs text-gray-400 italic">(${adv.eliminationReason})</span>`;
+                if (adv.rank > 0) { // Only display adventurers who have a rank
+                    const li = document.createElement('li');
+                    if (adv.rank === 1) li.innerHTML = `<span class="text-yellow-400">1. ${adv.name} - WINNER</span>`;
+                    else li.innerHTML = `<span>${adv.rank}. ${adv.name}</span> <span class="text-xs text-gray-400 italic">(${adv.eliminationReason})</span>`;
+                    rankingBoard.appendChild(li);
+                }
             });
         }
 
-        function validateAllStats() {
+        function updateAndValidateStatTotals(isInitialSetup = false) {
             let allValid = true;
             adventurers.forEach(adv => {
                 const str = parseInt(document.getElementById(`stat-input-${adv.name}-strength`).value) || 0;
@@ -614,17 +646,39 @@
                 
                 const totalEl = document.getElementById(`total-${adv.name}`);
                 totalEl.textContent = total;
+                totalEl.classList.remove('text-red-500', 'text-green-400', 'text-white');
 
-                if (total !== 30) {
-                    allValid = false;
-                    totalEl.classList.add('text-red-500');
-                    totalEl.classList.remove('text-green-400');
+                if (isInitialSetup) {
+                    totalEl.classList.add('text-white');
+                    if (total !== 30) {
+                        allValid = false;
+                        totalEl.classList.add('text-red-500');
+                    }
                 } else {
-                    totalEl.classList.add('text-green-400');
-                    totalEl.classList.remove('text-red-500');
+                     if (total > 30) {
+                        totalEl.classList.add('text-green-400');
+                    } else if (total < 30) {
+                        totalEl.classList.add('text-red-500');
+                    } else {
+                        totalEl.classList.add('text-white');
+                    }
                 }
+
+                ['strength', 'agility', 'cunning', 'luck'].forEach(stat => {
+                    const inputEl = document.getElementById(`stat-input-${adv.name}-${stat}`);
+                    inputEl.classList.remove('text-green-400', 'text-red-500');
+                    if(adv.initialStats[stat]) {
+                        if (adv.stats[stat] > adv.initialStats[stat]) {
+                            inputEl.classList.add('text-green-400');
+                        } else if (adv.stats[stat] < adv.initialStats[stat]) {
+                            inputEl.classList.add('text-red-500');
+                        }
+                    }
+                });
             });
-            startBtn.disabled = !allValid;
+            if (isInitialSetup) {
+                startBtn.disabled = !allValid;
+            }
         }
 
         function randomizeAdventurerStats(advName) {
@@ -634,7 +688,7 @@
             document.getElementById(`stat-input-${adv.name}-agility`).value = adv.stats.agility;
             document.getElementById(`stat-input-${adv.name}-cunning`).value = adv.stats.cunning;
             document.getElementById(`stat-input-${adv.name}-luck`).value = adv.stats.luck;
-            validateAllStats();
+            updateAndValidateStatTotals(true);
         }
 
         function lockInStats() {
@@ -643,6 +697,7 @@
                 adv.stats.agility = parseInt(document.getElementById(`stat-input-${adv.name}-agility`).value);
                 adv.stats.cunning = parseInt(document.getElementById(`stat-input-${adv.name}-cunning`).value);
                 adv.stats.luck = parseInt(document.getElementById(`stat-input-${adv.name}-luck`).value);
+                adv.initialStats = { ...adv.stats };
                 
                 document.querySelectorAll(`#card-${adv.name} input`).forEach(el => el.disabled = true);
                 document.getElementById(`randomize-${adv.name}`).style.display = 'none';
@@ -654,6 +709,8 @@
             gameState = 'setup';
             DAMAGE_MULTIPLIER = 1;
             eventTargetBonus = 0;
+            dustStormCount = 0;
+            isIntenseMusicActive = false;
             adventurers = adventurerNames.map((name, index) => new Adventurer(name, index, adventurerColors[index]));
             adventurersContainer.innerHTML = adventurers.map(createAdventurerCard).join('');
             adventurers.forEach(adv => {
@@ -661,17 +718,18 @@
                 adv.ctx = adv.canvas.getContext('2d');
                 document.getElementById(`randomize-${adv.name}`).addEventListener('click', () => randomizeAdventurerStats(adv.name));
                 document.querySelectorAll(`#card-${adv.name} input`).forEach(input => {
-                    input.addEventListener('input', validateAllStats);
+                    input.addEventListener('input', () => updateAndValidateStatTotals(true));
                 });
             });
             eventLog.innerHTML = '<p class="text-gray-500 italic text-sm">Prepare your adventurers...</p>';
             rankingContainer.classList.add('hidden');
+            downloadLogBtn.classList.add('hidden');
             startBtn.disabled = false; startBtn.textContent = "Begin!";
             pauseBtn.disabled = true; resetBtn.disabled = false; pauseBtn.textContent = 'Pause';
             
             bannerOverlay.classList.remove('visible');
 
-            validateAllStats();
+            updateAndValidateStatTotals(true);
         }
 
         startBtn.addEventListener('click', async () => {
@@ -704,7 +762,10 @@
                 resetBtn.disabled = false;
                 eventLog.innerHTML = ''; 
                 gameState = 'running';
-                if (soundsReady) Tone.Transport.start();
+                if (soundsReady) {
+                    backgroundMusic.start(0);
+                    Tone.Transport.start();
+                }
                 runTurn();
             } else if (gameState === 'finished') {
                 init();
@@ -726,7 +787,11 @@
         });
         resetBtn.addEventListener('click', () => { 
             gameState = 'setup'; 
-            if (soundsReady) Tone.Transport.stop();
+            if (soundsReady) {
+                Tone.Transport.stop();
+                if (backgroundMusic) backgroundMusic.dispose();
+                if (intenseMusic) intenseMusic.dispose();
+            }
             init(); 
         });
         
@@ -752,6 +817,18 @@
             }
         });
 
+        downloadLogBtn.addEventListener('click', () => {
+            const logText = Array.from(eventLog.querySelectorAll('p')).reverse().map(p => p.textContent).join('\n');
+            const blob = new Blob([logText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'adventure-log.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
 
         init();
         gameLoop();
